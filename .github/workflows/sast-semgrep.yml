@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: read
+      contents: read9
       security-events: write #allows uploading SARIF to Security tab
 
     steps:
