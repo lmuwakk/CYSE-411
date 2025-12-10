@@ -19,10 +19,17 @@ const app = express();
 app.disable("x-powered-by");
 
 // Helmet with CSP that includes directives that don’t fall back
+app.use(
+  helmet({
+    contentSecurityPolicy: false
+  })
+);
+
+// Explicit CSP header that defines directives with no fallback
 app.use((req, res, next) => {
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; navigate-to 'self'"
+    "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; navigate-to 'self'"
   );
   next();
 });
