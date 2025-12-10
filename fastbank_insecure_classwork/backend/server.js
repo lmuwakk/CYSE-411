@@ -152,9 +152,9 @@ app.get("/csrf-token", auth, csrfProtection, (req, res) => {
 });
 
 // ------------------------------------------------------------
-// /login  (fixed: bcrypt + parameterized query + rate limit)
+// /login  (bcrypt + parameterized query + rate limit + CSRF)
 // ------------------------------------------------------------
-app.post("/login", sensitiveLimiter, (req, res) => {
+app.post("/login", sensitiveLimiter, csrfProtection, (req, res) => {
   const { username, password } = req.body;
 
   const sql = `SELECT id, username, password_hash FROM users WHERE username = ?`;
@@ -182,7 +182,7 @@ app.post("/login", sensitiveLimiter, (req, res) => {
 });
 
 // ------------------------------------------------------------
-// /me — fixed: parameterized query, still auth-protected
+// /me — parameterized query, auth-protected
 // ------------------------------------------------------------
 app.get("/me", auth, (req, res) => {
   const sql = `SELECT username, email FROM users WHERE id = ?`;
@@ -213,9 +213,9 @@ app.get("/transactions", auth, sensitiveLimiter, (req, res) => {
 
 // ------------------------------------------------------------
 // /feedback — fixed SQL injection, basic stored XSS mitigation,
-// and rate limiting
+// CSRF protection, and rate limiting
 // ------------------------------------------------------------
-app.post("/feedback", auth, sensitiveLimiter, (req, res) => {
+app.post("/feedback", auth, sensitiveLimiter, csrfProtection, (req, res) => {
   const comment = req.body.comment || "";
   const userId = req.user.id;
 
@@ -249,21 +249,27 @@ app.get("/feedback", auth, sensitiveLimiter, (req, res) => {
 });
 
 // ------------------------------------------------------------
-// /change-email — fixed SQLi, adds CSRF protection + rate limit
+// /change-email — SQLi fixed, CSRF + rate limit + auth
 // ------------------------------------------------------------
-app.post("/change-email", auth, csrfProtection, sensitiveLimiter, (req, res) => {
-  const newEmail = req.body.email;
+app.post(
+  "/change-email",
+  auth,
+  csrfProtection,
+  sensitiveLimiter,
+  (req, res) => {
+    const newEmail = req.body.email;
 
-  if (!newEmail || !newEmail.includes("@")) {
-    return res.status(400).json({ error: "Invalid email" });
+    if (!newEmail || !newEmail.includes("@")) {
+      return res.status(400).json({ error: "Invalid email" });
+    }
+
+    const sql = `UPDATE users SET email = ? WHERE id = ?`;
+    db.run(sql, [newEmail, req.user.id], (err) => {
+      if (err) return res.status(500).json({ error: "DB error" });
+      res.json({ success: true, email: newEmail });
+    });
   }
-
-  const sql = `UPDATE users SET email = ? WHERE id = ?`;
-  db.run(sql, [newEmail, req.user.id], (err) => {
-    if (err) return res.status(500).json({ error: "DB error" });
-    res.json({ success: true, email: newEmail });
-  });
-});
+);
 
 // ------------------------------------------------------------
 app.listen(4000, () =>
