@@ -26,7 +26,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install semgrep
       - name: Run Semgrep SAST (OWASP Top 10 rules)
-      - name: Run Semgrep SAST (OWASP Top 10 rules)
         run: |
           semgrep \
             --config p/owasp-top-ten \
