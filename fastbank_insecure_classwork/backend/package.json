@@ -12,6 +12,10 @@
     "express": "^4.19.2",
     "sqlite3": "^5.1.7",
     "crypto": "0.0.3"
+    "helmet": "^7.0.0",
+    "express-rate-limit": "^7.0.0",
+    "csurf": "^1.11.0",
+    "bcrypt": "^5.1.0"
   }
 }
 
