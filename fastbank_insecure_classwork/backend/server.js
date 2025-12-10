@@ -27,10 +27,16 @@ app.use(
 
 // Explicit CSP header that defines directives with no fallback
 app.use((req, res, next) => {
-  res.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; navigate-to 'self'"
-  );
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        "default-src": ["'none'"],
+        "frame-ancestors": ["'none'"],
+        "form-action": ["'self'"],
+      // keep any other directives it already had
+    }
+  }
+});
   next();
 });
 
