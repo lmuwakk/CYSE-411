@@ -100,4 +100,10 @@ app.post("/api/logout", (req, res) => {
   res.json({ success: true });
 });
 
-app.get("/", (req,
+app.get("/", (req, res) => {
+  res.status(200).send("OK");
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`FastBank Auth Lab running at http://localhost:${PORT}`);
+});
