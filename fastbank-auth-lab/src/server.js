@@ -2,10 +2,6 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const crypto = require("crypto");
-const bcrypt = require("bcrypt");
-const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
-const csrf = require("csurf");
 
 const app = express();
 const PORT = 3001;
@@ -15,12 +11,6 @@ app.disable("x-powered-by");
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(cookieParser());
-
-app.use(
-  helmet({
-    contentSecurityPolicy: false,
-  })
-);
 
 app.use((req, res, next) => {
   res.setHeader(
@@ -52,92 +42,62 @@ const users = [
   {
     id: 1,
     username: "student",
-    passwordHash: bcrypt.hashSync("password123", 12),
+    passwordHash: fastHash("password123"),
   },
 ];
 
 const sessions = {};
 
+function fastHash(password) {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
+
 function findUser(username) {
   return users.find((u) => u.username === username);
 }
-
-const authLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const csrfProtection = csrf({
-  cookie: {
-    httpOnly: false,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-  },
-});
-
-app.get("/api/csrf", csrfProtection, (req, res) => {
-  res.json({ csrfToken: req.csrfToken() });
-});
 
 app.get("/api/me", (req, res) => {
   const token = req.cookies.session;
   if (!token || !sessions[token]) {
     return res.status(401).json({ authenticated: false });
   }
-
   const session = sessions[token];
-  if (Date.now() > session.expires) {
-    delete sessions[token];
-    res.clearCookie("session");
-    return res.status(401).json({ authenticated: false });
-  }
-
   const user = users.find((u) => u.id === session.userId);
   res.json({ authenticated: true, username: user.username });
 });
 
-app.post("/api/login", authLimiter, csrfProtection, (req, res) => {
+app.post("/api/login", (req, res) => {
   const { username, password } = req.body;
   const user = findUser(username);
-  const INVALID_MESSAGE = "Invalid username or password";
 
   if (!user) {
-    return res.status(401).json({ success: false, message: INVALID_MESSAGE });
+    return res.status(401).json({ success: false, message: "Unknown username" });
   }
 
-  const passwordMatch = bcrypt.compareSync(password, user.passwordHash);
-  if (!passwordMatch) {
-    return res.status(401).json({ success: false, message: INVALID_MESSAGE });
+  const candidateHash = fastHash(password);
+  if (candidateHash !== user.passwordHash) {
+    return res.status(401).json({ success: false, message: "Wrong password" });
   }
 
-  for (const t in sessions) {
-    if (sessions[t].userId === user.id) delete sessions[t];
-  }
-
-  const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = Date.now() + 30 * 60 * 1000;
-
-  sessions[token] = { userId: user.id, expires: expiresAt };
+  const token = username + "-" + Date.now();
+  sessions[token] = { userId: user.id };
 
   res.cookie("session", token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 30 * 60 * 1000,
+    secure: process.env.NODE_ENV === "production",
   });
 
-  res.json({ success: true });
+  res.json({ success: true, token });
 });
 
-app.post("/api/logout", csrfProtection, (req, res) => {
+app.post("/api/logout", (req, res) => {
   const token = req.cookies.session;
-  if (token && sessions[token]) delete sessions[token];
+  if (token && sessions[token]) {
+    delete sessions[token];
+  }
   res.clearCookie("session");
   res.json({ success: true });
 });
 
-app.listen(PORT, () => {
-  console.log(`App running at http://localhost:${PORT}`);
-});
+app.get("/", (req,
