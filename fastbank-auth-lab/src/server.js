@@ -2,6 +2,9 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const crypto = require("crypto");
+const https = require("https");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 const PORT = 3001;
@@ -29,11 +32,29 @@ app.use((req, res, next) => {
     "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
   );
 
+  res.setHeader("X-Content-Type-Options", "nosniff");
+
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
+
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
 
   next();
+});
+
+// Ensure these definitely pass through the middleware above
+app.get("/robots.txt", (req, res) => {
+  res.type("text/plain").send("User-agent: *\nDisallow:");
+});
+
+app.get("/sitemap.xml", (req, res) => {
+  res.type("application/xml").send(
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`
+  );
 });
 
 app.use(express.static("public"));
@@ -79,7 +100,7 @@ app.post("/api/login", (req, res) => {
     return res.status(401).json({ success: false, message: "Wrong password" });
   }
 
-  const token = username + "-" + Date.now();
+  const token = crypto.randomBytes(32).toString("hex");
   sessions[token] = { userId: user.id };
 
   res.cookie("session", token, {
@@ -104,6 +125,19 @@ app.get("/", (req, res) => {
   res.status(200).send("OK");
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`FastBank Auth Lab running at http://localhost:${PORT}`);
-});
+// HTTPS in CI to satisfy "HTTP Only Site"
+const keyPath = path.join(__dirname, "key.pem");
+const certPath = path.join(__dirname, "cert.pem");
+
+if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+  const key = fs.readFileSync(keyPath);
+  const cert = fs.readFileSync(certPath);
+
+  https.createServer({ key, cert }, app).listen(PORT, "0.0.0.0", () => {
+    console.log(`Running at https://localhost:${PORT}`);
+  });
+} else {
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Running at http://localhost:${PORT} (no cert.pem/key.pem found)`);
+  });
+}
