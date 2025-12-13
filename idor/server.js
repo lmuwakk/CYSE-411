@@ -1,7 +1,18 @@
 const express = require("express");
 const app = express();
 
+app.disable("x-powered-by"); // fixes ZAP "X-Powered-By: Express" leak :contentReference[oaicite:1]{index=1}
 app.use(express.json());
+
+// Basic security headers (also helps with ZAP "Spectre/site isolation" style lows if they show up)
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  next();
+});
 
 // Fake "database"
 const users = [
@@ -19,45 +30,62 @@ const orders = [
 
 // Very simple "authentication" via headers:
 //   X-User-Id: <user id>
-//   (we pretend that real auth already happened)
 function fakeAuth(req, res, next) {
   const idHeader = req.header("X-User-Id");
-  const id = idHeader ? parseInt(idHeader, 10) : null;
+  const id = idHeader ? Number.parseInt(idHeader, 10) : NaN;
+
+  if (!Number.isInteger(id)) {
+    return res.status(401).json({ error: "Unauthenticated: set X-User-Id" });
+  }
 
   const user = users.find((u) => u.id === id);
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated: set X-User-Id" });
   }
 
-  // Attach authenticated user to the request
   req.user = user;
   next();
 }
 
-// Apply fakeAuth to all routes below this line
 app.use(fakeAuth);
 
-// VULNERABLE endpoint: no ownership check (IDOR)
+// ✅ FIXED endpoint: enforce authorization (prevents IDOR)
 app.get("/orders/:id", (req, res) => {
-  const orderId = parseInt(req.params.id, 10);
+  const orderId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(orderId)) {
+    return res.status(400).json({ error: "Invalid order id" });
+  }
 
   const order = orders.find((o) => o.id === orderId);
   if (!order) {
     return res.status(404).json({ error: "Order not found" });
   }
 
-  // BUG: no check that order.userId === req.user.id
+  // Authorization rules:
+  // - customers can ONLY access their own orders
+  // - support can access orders in their department/region
+  const user = req.user;
+
+  let allowed = false;
+  if (user.role === "customer") {
+    allowed = order.userId === user.id;
+  } else if (user.role === "support") {
+    allowed = order.region === user.department;
+  }
+
+  // Return 404 instead of 403 to reduce order-id probing/enumeration
+  if (!allowed) {
+    return res.status(404).json({ error: "Order not found" });
+  }
+
   return res.json(order);
 });
-
-
 
 // Health check
 app.get("/", (req, res) => {
   res.json({ message: "Access Control Tutorial API", currentUser: req.user });
 });
 
-// Start server
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
