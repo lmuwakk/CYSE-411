@@ -46,11 +46,21 @@ app.use(
   })
 );
 
-const fileOpsLimiter = rateLimit({
+const fileLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+app.get("/robots.txt", (req, res) => {
+  res.type("text/plain").send("User-agent: *\nDisallow:\n");
+});
+
+app.get("/sitemap.xml", (req, res) => {
+  res
+    .type("application/xml")
+    .send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
 });
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -89,31 +99,31 @@ const filenameValidator = body("filename")
   .bail()
   .custom((v) => sanitizeRelPath(v) !== null);
 
-app.post("/read", fileOpsLimiter, filenameValidator, (req, res) => {
+app.post("/read", fileLimiter, filenameValidator, (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ error: "Invalid filename" });
 
-  const normalized = resolveSafe(BASE_DIR, req.body.filename);
-  if (!normalized) return res.status(403).json({ error: "Path traversal detected" });
-  if (!fs.existsSync(normalized)) return res.status(404).json({ error: "File not found" });
+  const resolved = resolveSafe(BASE_DIR, req.body.filename);
+  if (!resolved) return res.status(403).json({ error: "Path traversal detected" });
+  if (!fs.existsSync(resolved)) return res.status(404).json({ error: "File not found" });
 
-  const content = fs.readFileSync(normalized, "utf8");
-  res.json({ path: normalized, content });
+  const content = fs.readFileSync(resolved, "utf8");
+  res.json({ path: resolved, content });
 });
 
-app.post("/read-no-validate", fileOpsLimiter, filenameValidator, (req, res) => {
+app.post("/read-no-validate", fileLimiter, filenameValidator, (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ error: "Invalid filename" });
 
-  const normalized = resolveSafe(BASE_DIR, req.body.filename);
-  if (!normalized) return res.status(403).json({ error: "Path traversal detected" });
-  if (!fs.existsSync(normalized)) return res.status(404).json({ error: "File not found" });
+  const resolved = resolveSafe(BASE_DIR, req.body.filename);
+  if (!resolved) return res.status(403).json({ error: "Path traversal detected" });
+  if (!fs.existsSync(resolved)) return res.status(404).json({ error: "File not found" });
 
-  const content = fs.readFileSync(normalized, "utf8");
-  res.json({ path: normalized, content });
+  const content = fs.readFileSync(resolved, "utf8");
+  res.json({ path: resolved, content });
 });
 
-app.post("/setup-sample", fileOpsLimiter, (req, res) => {
+app.post("/setup-sample", fileLimiter, (req, res) => {
   const samples = {
     "hello.txt": "Hello from safe file!\n",
     "notes/readme.md": "# Readme\nSample readme file",
