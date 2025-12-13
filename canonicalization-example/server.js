@@ -1,82 +1,141 @@
-// server.js
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const { body, validationResult } = require('express-validator');
+const express = require("express");
+const path = require("path");
+const fs = require("fs");
+const rateLimit = require("express-rate-limit");
+const { body, validationResult } = require("express-validator");
 
 const app = express();
+app.disable("x-powered-by");
+
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
 
-const BASE_DIR = path.resolve(__dirname, 'files');
-if (!fs.existsSync(BASE_DIR)) fs.mkdirSync(BASE_DIR, { recursive: true });
-
-// helper to canonicalize and check
-function resolveSafe(baseDir, userInput) {
-  try {
-    userInput = decodeURIComponent(userInput);
-  } catch (e) {}
-  return path.resolve(baseDir, userInput);
-}
-
-// Secure route
-app.post(
-  '/read',
-  body('filename')
-    .exists().withMessage('filename required')
-    .bail()
-    .isString()
-    .trim()
-    .notEmpty().withMessage('filename must not be empty')
-    .custom(value => {
-      if (value.includes('\0')) throw new Error('null byte not allowed');
-      return true;
-    }),
-  (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-
-    const filename = req.body.filename;
-    const normalized = resolveSafe(BASE_DIR, filename);
-    if (!normalized.startsWith(BASE_DIR + path.sep)) {
-      return res.status(403).json({ error: 'Path traversal detected' });
-    }
-    if (!fs.existsSync(normalized)) return res.status(404).json({ error: 'File not found' });
-
-    const content = fs.readFileSync(normalized, 'utf8');
-    res.json({ path: normalized, content });
-  }
-);
-
-// Vulnerable route (demo)
-app.post('/read-no-validate', (req, res) => {
-  const filename = req.body.filename || '';
-  const joined = path.join(BASE_DIR, filename); // intentionally vulnerable
-  if (!fs.existsSync(joined)) return res.status(404).json({ error: 'File not found', path: joined });
-  const content = fs.readFileSync(joined, 'utf8');
-  res.json({ path: joined, content });
+app.use((req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+    ].join("; ")
+  );
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=()"
+  );
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
 });
 
-// Helper route for samples
-app.post('/setup-sample', (req, res) => {
+app.use(
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
+
+const fileOpsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(express.static(path.join(__dirname, "public")));
+
+const BASE_DIR = path.resolve(__dirname, "files");
+if (!fs.existsSync(BASE_DIR)) fs.mkdirSync(BASE_DIR, { recursive: true });
+
+function sanitizeRelPath(input) {
+  let s = String(input ?? "");
+  try {
+    s = decodeURIComponent(s);
+  } catch (_) {}
+  s = s.replace(/\\/g, "/").trim();
+  if (!s) return null;
+  if (s.includes("\0")) return null;
+  if (s.startsWith("/")) return null;
+  if (!/^[a-zA-Z0-9._\-\/]+$/.test(s)) return null;
+  const norm = path.posix.normalize(s);
+  if (norm === "." || norm.startsWith("../") || norm.includes("/../")) return null;
+  return norm;
+}
+
+function resolveSafe(baseDir, userInput) {
+  const rel = sanitizeRelPath(userInput);
+  if (!rel) return null;
+  const full = path.resolve(baseDir, rel);
+  const base = baseDir.endsWith(path.sep) ? baseDir : baseDir + path.sep;
+  if (!full.startsWith(base)) return null;
+  return full;
+}
+
+const filenameValidator = body("filename")
+  .exists()
+  .bail()
+  .isString()
+  .bail()
+  .custom((v) => sanitizeRelPath(v) !== null);
+
+app.post("/read", fileOpsLimiter, filenameValidator, (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: "Invalid filename" });
+
+  const normalized = resolveSafe(BASE_DIR, req.body.filename);
+  if (!normalized) return res.status(403).json({ error: "Path traversal detected" });
+  if (!fs.existsSync(normalized)) return res.status(404).json({ error: "File not found" });
+
+  const content = fs.readFileSync(normalized, "utf8");
+  res.json({ path: normalized, content });
+});
+
+app.post("/read-no-validate", fileOpsLimiter, filenameValidator, (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: "Invalid filename" });
+
+  const normalized = resolveSafe(BASE_DIR, req.body.filename);
+  if (!normalized) return res.status(403).json({ error: "Path traversal detected" });
+  if (!fs.existsSync(normalized)) return res.status(404).json({ error: "File not found" });
+
+  const content = fs.readFileSync(normalized, "utf8");
+  res.json({ path: normalized, content });
+});
+
+app.post("/setup-sample", fileOpsLimiter, (req, res) => {
   const samples = {
-    'hello.txt': 'Hello from safe file!\n',
-    'notes/readme.md': '# Readme\nSample readme file'
+    "hello.txt": "Hello from safe file!\n",
+    "notes/readme.md": "# Readme\nSample readme file",
   };
-  Object.keys(samples).forEach(k => {
-    const p = path.resolve(BASE_DIR, k);
+
+  Object.keys(samples).forEach((k) => {
+    const rel = sanitizeRelPath(k);
+    if (!rel) return;
+    const p = path.resolve(BASE_DIR, rel);
+    const base = BASE_DIR.endsWith(path.sep) ? BASE_DIR : BASE_DIR + path.sep;
+    if (!p.startsWith(base)) return;
     const d = path.dirname(p);
     if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
-    fs.writeFileSync(p, samples[k], 'utf8');
+    fs.writeFileSync(p, samples[k], "utf8");
   });
+
   res.json({ ok: true, base: BASE_DIR });
 });
 
-// Only listen when run directly (not when imported by tests)
 if (require.main === module) {
   const port = process.env.PORT || 4000;
-  app.listen(port, () => {
+  app.listen(port, "0.0.0.0", () => {
     console.log(`Server listening on http://localhost:${port}`);
   });
 }
