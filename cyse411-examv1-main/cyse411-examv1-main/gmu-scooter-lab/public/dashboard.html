@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>GMU Smart Scooter – Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>GMU Smart Scooter – Dashboard</h1>
+  <div id="user-info"></div>
+  <button id="logout-btn">Logout</button>
+
+  <div class="flex-row">
+    <div class="card">
+      <h2>Search Stations (SQLi Challenge)</h2>
+      <input id="station-search" placeholder="Search by name or location" />
+      <button id="search-btn">Search</button>
+
+      <h3>Regex Search (Use here a regex to find stations)</h3>
+      <input id="regex-pattern" placeholder="Regex pattern" />
+      <button id="regex-btn">Regex Search</button>
+
+      <ul id="stations-list"></ul>
+    </div>
+
+    <div class="card">
+      <h2>Feedback Wall (Stored XSS Challenge)</h2>
+      <textarea id="feedback-text" placeholder="Leave a comment"></textarea><br />
+      <button id="feedback-btn">Submit Feedback</button>
+      <ul id="feedback-list"></ul>
+    </div>
+
+    <div class="card">
+      <h2>Account</h2>
+      <p>Change email.</p>
+      <input id="email-input" type="email" placeholder="New email" />
+      <button id="email-btn">Update Email</button>
+
+      <h3>Admin Users</h3>
+      <button id="admin-users-btn">Load Users</button>
+      <ul id="admin-users-list"></ul>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
